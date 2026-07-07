@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pixel Hopper</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08111f;
+        --panel: rgba(12, 20, 36, 0.84);
+        --panel-strong: #0e1830;
+        --text: #edf2ff;
+        --muted: #9db0d0;
+        --accent: #72e6ff;
+        --accent-2: #9dffb3;
+        --danger: #ff8da1;
+        --border: rgba(154, 183, 255, 0.18);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(114, 230, 255, 0.16), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(157, 255, 179, 0.14), transparent 24%),
+          linear-gradient(180deg, #09111f 0%, #050914 100%);
+        color: var(--text);
+      }
+
+      .shell {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 40px 20px 56px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+        align-items: stretch;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        backdrop-filter: blur(16px);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+      }
+
+      .intro {
+        padding: 34px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(114, 230, 255, 0.12);
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        font-size: clamp(2.2rem, 4vw, 4rem);
+        line-height: 0.95;
+      }
+
+      .lede {
+        margin: 0;
+        max-width: 60ch;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.6;
+      }
+
+      .upload-card {
+        padding: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .upload-box {
+        border: 1.5px dashed rgba(114, 230, 255, 0.35);
+        border-radius: 20px;
+        padding: 22px;
+        background: rgba(7, 12, 22, 0.52);
+      }
+
+      label {
+        display: block;
+        font-size: 14px;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        color: var(--muted);
+      }
+
+      .button-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .button {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 18px;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .button.primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color: #04101a;
+      }
+
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+
+      .notice {
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 141, 161, 0.25);
+        background: rgba(255, 141, 161, 0.08);
+        color: #ffd4dc;
+      }
+
+      .status-grid {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 18px;
+      }
+
+      .status-card {
+        padding: 22px;
+      }
+
+      .status-title {
+        margin: 0 0 8px;
+        font-size: 1.05rem;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0;
+        word-break: break-word;
+      }
+
+      .progress-wrap {
+        margin-top: 16px;
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.07);
+      }
+
+      .progress-bar {
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        transition: width 180ms ease;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+      }
+
+      .status-pill[data-status="complete"] { color: var(--accent-2); }
+      .status-pill[data-status="failed"] { color: var(--danger); }
+
+      .jobs {
+        margin-top: 18px;
+        padding: 24px;
+      }
+
+      .jobs h2 {
+        margin: 0 0 14px;
+        font-size: 1.25rem;
+      }
+
+      .job-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .job-row {
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        display: grid;
+        gap: 6px;
+      }
+
+      .job-row a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      @media (max-width: 800px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .intro, .upload-card, .status-card, .jobs {
+          padding: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="card intro">
+          <span class="eyebrow">Pixel Hopper</span>
+          <h1>Upload a file, encode it as PNG, and watch the checksum-driven round trip.</h1>
+          <p class="lede">This local Flask interface accepts a binary file, runs it through the PNG encoder and decoder in the background, and exposes live processing status so you can verify the original and reconstructed SHA256 hashes match.</p>
+        </div>
+
+        <form class="card upload-card" action="/upload" method="post" enctype="multipart/form-data">
+          <div class="upload-box">
+            <label for="file">Choose a file to process</label>
+            <input id="file" name="file" type="file" required>
+          </div>
+          <div class="button-row">
+            <button class="button primary" type="submit">Start processing</button>
+            <a class="button secondary" href="/">Refresh</a>
+          </div>
+          {% if error %}
+            <div class="notice">{{ error }}</div>
+          {% endif %}
+        </form>
+      </section>
+
+      {% if job %}
+      <section class="status-grid" id="job-status" data-job-id="{{ job.id }}">
+        <article class="card status-card">
+          <h2 class="status-title">Current job</h2>
+          <p class="meta"><strong>File:</strong> {{ job.filename }}</p>
+          <p class="meta"><strong>Message:</strong> <span id="message">{{ job.message }}</span></p>
+          <p class="meta"><strong>Original SHA256:</strong> <span id="original-sha">{{ job.original_sha256 or 'pending' }}</span></p>
+          <p class="meta"><strong>Reconstructed SHA256:</strong> <span id="reconstructed-sha">{{ job.reconstructed_sha256 or 'pending' }}</span></p>
+          <div class="progress-wrap" aria-label="processing progress">
+            <div class="progress-bar" id="progress-bar" style="width: {{ job.progress }}%;"></div>
+          </div>
+          <div class="status-pill" id="status-pill" data-status="{{ job.status }}">{{ job.status|upper }}</div>
+          <p class="meta" id="error-text" style="margin-top:12px; color: var(--danger);">{{ job.error or '' }}</p>
+        </article>
+
+        <article class="card status-card">
+          <h2 class="status-title">Artifacts</h2>
+          <p class="meta"><strong>PNG:</strong> <span id="png-path">{{ job.png_path or 'pending' }}</span></p>
+          <p class="meta"><strong>Reconstructed file:</strong> <span id="reconstructed-path">{{ job.reconstructed_path or 'pending' }}</span></p>
+          <p class="meta">The page polls the local API every second until the job completes or fails.</p>
+        </article>
+      </section>
+      {% endif %}
+
+      <section class="card jobs">
+        <h2>Recent jobs</h2>
+        {% if jobs %}
+          <div class="job-list">
+            {% for item in jobs %}
+              <div class="job-row">
+                <strong><a href="/jobs/{{ item.id }}">{{ item.filename }}</a></strong>
+                <span class="meta">{{ item.status }} · {{ item.progress }}% · {{ item.message }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="meta">No jobs yet. Upload a file to begin.</p>
+        {% endif %}
+      </section>
+    </main>
+
+    <script>
+      const statusRoot = document.getElementById('job-status');
+      if (statusRoot) {
+        const jobId = statusRoot.dataset.jobId;
+        const progressBar = document.getElementById('progress-bar');
+        const statusPill = document.getElementById('status-pill');
+        const messageNode = document.getElementById('message');
+        const originalSha = document.getElementById('original-sha');
+        const reconstructedSha = document.getElementById('reconstructed-sha');
+        const errorText = document.getElementById('error-text');
+        const pngPath = document.getElementById('png-path');
+        const reconstructedPath = document.getElementById('reconstructed-path');
+
+        const render = (job) => {
+          progressBar.style.width = `${job.progress}%`;
+          statusPill.textContent = job.status.toUpperCase();
+          statusPill.dataset.status = job.status;
+          messageNode.textContent = job.message;
+          originalSha.textContent = job.original_sha256 || 'pending';
+          reconstructedSha.textContent = job.reconstructed_sha256 || 'pending';
+          pngPath.textContent = job.png_path || 'pending';
+          reconstructedPath.textContent = job.reconstructed_path || 'pending';
+          errorText.textContent = job.error || '';
+        };
+
+        const poll = async () => {
+          const response = await fetch(`/api/jobs/${jobId}`);
+          if (!response.ok) return;
+          const job = await response.json();
+          render(job);
+          if (job.status === 'complete' || job.status === 'failed') {
+            clearInterval(timer);
+          }
+        };
+
+        const timer = setInterval(poll, 1000);
+        poll();
+      }
+    </script>
+  </body>
+</html>
