@@ -359,7 +359,7 @@ def decode_png_to_bytes(input_path: str | Path) -> bytes:
                 "expected:",
                 expected_length
             )
-            
+
             chunk_manifest, chunk_payload = remove_manifest_header(
                 chunk_payload_with_manifest
             )
