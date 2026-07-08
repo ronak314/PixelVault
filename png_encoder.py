@@ -375,7 +375,7 @@ def zip_path(input_path: Path) -> Path:
                 if file.is_file():
                     z.write(
                         file,
-                        arcname=file.relative_to(input_path)
+                        arcname=file.relative_to(input_path.parent)
                     )
 
     return zip_path
