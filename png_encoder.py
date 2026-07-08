@@ -11,11 +11,14 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+import zipfile
+import tempfile
+import os
 
 import numpy as np
 from PIL import Image, PngImagePlugin
 
-from fec_layer import DEFAULT_PARITY_CHUNKS, build_storage_plan, recover_original_bytes
+from fec_layer import build_storage_plan, recover_original_bytes
 
 Chunk_MB = 50
 
@@ -115,13 +118,13 @@ def _chunk_name(original_name: str, index: int, *, kind: str | None = None, mani
     """Build a flat, descriptive filename for a PNG output."""
 
     if manifest:
-        return f"{original_name}_manifest.json"
+        return f"{original_name}_manifest.png"
     suffix = f"_{kind}" if kind else ""
     return f"{original_name}_chunk_{index:06d}{suffix}.png"
 
 
 def _manifest_png_name(original_name: str) -> str:
-    """Return the manifest JSON filename used for the storage set."""
+    """Return the manifest PNG filename used for the storage set."""
 
     return _chunk_name(original_name, 1, manifest=True)
 
@@ -157,10 +160,10 @@ def encode_file_to_png(
     output_root.mkdir(parents=True, exist_ok=True)
 
     chunk_paths: list[Path] = []
-    storage_plan = build_storage_plan(input_file, chunk_size=chunk_size, parity_chunks=DEFAULT_PARITY_CHUNKS)
+    storage_plan = build_storage_plan(input_file, chunk_size=chunk_size)
 
     manifest_path = output_root / storage_plan.manifest_filename
-    manifest_path.write_text(json.dumps(storage_plan.manifest, indent=2), encoding="utf-8")
+    _write_payload_png(json.dumps(storage_plan.manifest, indent=2).encode("utf-8"), manifest_path, kind="manifest")
     chunk_paths.append(manifest_path)
 
     for share_record, share_payload in zip(storage_plan.share_records, storage_plan.share_payloads):
@@ -177,39 +180,49 @@ def encode_file_to_png(
     )
 
 
-def resolve_manifest_json_path(input_path: str | Path) -> Path:
-    """Resolve a decode input to its manifest JSON path.
+def resolve_manifest_png_path(input_path: str | Path) -> Path:
+    """Resolve a decode input to its manifest PNG path.
 
-    Accepts either the manifest JSON itself, an encoded output directory, or a
+    Accepts either the manifest PNG itself, an encoded output directory, or a
     source-like file path such as ``uploads/hello.txt``.
     """
 
     input_file = Path(input_path)
 
     if input_file.is_dir():
-        manifest_candidates = sorted(input_file.glob("*_manifest.json"))
+        manifest_candidates = sorted(input_file.glob("*_manifest.png"))
         if manifest_candidates:
             return manifest_candidates[0]
 
-    if input_file.is_file() and input_file.name.endswith("_manifest.json"):
+    if input_file.is_file() and input_file.name.endswith("_manifest.png"):
         return input_file
 
-    candidate = DEFAULT_ENCODED_ROOT / f"{input_file.name}_manifest.json"
+    candidate = DEFAULT_ENCODED_ROOT / f"{input_file.name}_manifest.png"
     if candidate.exists():
         return candidate
 
-    raise FileNotFoundError(f"manifest JSON not found for {input_path}")
+    raise FileNotFoundError(f"manifest PNG not found for {input_path}")
 
 
-def resolve_manifest_png_path(input_path: str | Path) -> Path:
-    """Backward-compatible alias for the JSON manifest resolver."""
+def resolve_manifest_json_path(input_path: str | Path) -> Path:
+    """Backward-compatible alias for the PNG manifest resolver."""
 
-    return resolve_manifest_json_path(input_path)
+    return resolve_manifest_png_path(input_path)
+
+
+def _read_png_payload(path: Path) -> bytes:
+    """Read the raw payload bytes stored in a PNG image."""
+
+    with Image.open(path) as image:
+        rgb_bytes = np.asarray(image.convert("RGB"), dtype=np.uint8).reshape(-1).tobytes()
+        payload_length = int(image.info.get("payload_length", len(rgb_bytes)))
+    return rgb_bytes[:payload_length]
 
 
 def _load_manifest(input_path: str | Path) -> tuple[Path, dict[str, object]]:
-    manifest_path = resolve_manifest_json_path(input_path)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path = resolve_manifest_png_path(input_path)
+    manifest_payload = _read_png_payload(manifest_path)
+    manifest = json.loads(manifest_payload.decode("utf-8"))
     return manifest_path.parent, manifest
 
 
@@ -225,8 +238,7 @@ def decode_png_to_bytes(input_path: str | Path) -> bytes:
         if not chunk_path.exists():
             continue
         try:
-            with Image.open(chunk_path) as image:
-                pixel_data = np.asarray(image.convert("RGB"), dtype=np.uint8).reshape(-1)
+            pixel_data = np.frombuffer(_read_png_payload(chunk_path), dtype=np.uint8)
         except Exception:
             continue
 
@@ -312,47 +324,165 @@ def _print_progress_bar(current: int, total: int, label: str, name: str) -> None
         print()
 
 
+def _is_user_upload_file(path: Path) -> bool:
+    """Return True for regular user files that should be encoded."""
+
+    if not path.is_file():
+        return False
+
+    name = path.name
+    if name.startswith("."):
+        return False
+    if name.startswith("~"):
+        return False
+    if name.endswith("~"):
+        return False
+    if name in {".DS_Store", "Thumbs.db"}:
+        return False
+    if name.startswith("._"):
+        return False
+
+    lower_name = name.lower()
+    temp_suffixes = (
+        ".tmp",
+        ".temp",
+        ".part",
+        ".swp",
+        ".crdownload",
+        ".download",
+        ".partial",
+    )
+    if lower_name.endswith(temp_suffixes):
+        return False
+
+    return True
+
+def zip_path(input_path: Path) -> Path:
+    """
+    Compress a file or folder into a temporary zip.
+    Returns the zip path.
+    """
+
+    temp_dir = Path(tempfile.mkdtemp())
+    zip_path = temp_dir / f"{input_path.name}.zip"
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        if input_path.is_file():
+            z.write(input_path, arcname=input_path.name)
+
+        elif input_path.is_dir():
+            for file in input_path.rglob("*"):
+                if file.is_file():
+                    z.write(
+                        file,
+                        arcname=file.relative_to(input_path)
+                    )
+
+    return zip_path
+
+
+def unzip_file(zip_path: Path, output_dir: Path) -> Path:
+    """
+    Extract zip contents back to normal files.
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(output_dir)
+
+    return output_dir
+
+
 def batch_encode_uploads(chunk_size_mb: int | None = None) -> list[EncodingResult]:
-    """Encode every file currently present in the uploads folder."""
+    """
+    Zip every upload (file or folder), then encode the zip.
+    """
 
-    effective_chunk_size_mb = chunk_size_mb if chunk_size_mb is not None else max(1, math.ceil(DEFAULT_CHUNK_SIZE / (1024 * 1024)))
-    results: list[EncodingResult] = []
-    upload_files = sorted(path for path in DEFAULT_UPLOAD_ROOT.iterdir() if path.is_file())
+    effective_chunk_size_mb = (
+        chunk_size_mb 
+        if chunk_size_mb is not None 
+        else max(1, math.ceil(DEFAULT_CHUNK_SIZE / (1024 * 1024)))
+    )
 
-    if not upload_files:
-        print(f"No files found in {DEFAULT_UPLOAD_ROOT}")
+    results = []
+
+    upload_items = sorted(
+        path for path in DEFAULT_UPLOAD_ROOT.iterdir()
+        if not path.name.startswith(".")
+    )
+
+    if not upload_items:
+        print(f"No uploads found in {DEFAULT_UPLOAD_ROOT}")
         return results
 
-    total_files = len(upload_files)
-    for index, upload_file in enumerate(upload_files, start=1):
-        if not upload_file.exists():
-            _print_progress_bar(index, total_files, "Encoding", f"skipped {upload_file.name}")
-            continue
-        output_dir = DEFAULT_ENCODED_ROOT
-        _print_progress_bar(index - 1, total_files, "Encoding", upload_file.name)
-        results.append(_encode_with_checksums(upload_file, output_dir, effective_chunk_size_mb))
-        _print_progress_bar(index, total_files, "Encoding", upload_file.name)
+
+    for index, item in enumerate(upload_items, start=1):
+
+        print(f"\nCompressing {item.name}...")
+
+        zipped = zip_path(item)
+
+        print(f"Encoding {zipped.name}...")
+
+        result = _encode_with_checksums(
+            zipped,
+            DEFAULT_ENCODED_ROOT,
+            effective_chunk_size_mb
+        )
+
+        results.append(result)
+
+        # delete temporary zip
+        zipped.unlink()
+
+        # remove temporary directory
+        zipped.parent.rmdir()
+
+        print(f"Finished {item.name}")
+
 
     return results
 
 
 def _decode_with_checksums(input_path: Path, output_path: Path | None) -> Path:
+
     manifest_path = resolve_manifest_json_path(input_path)
-    resolved_output = output_path or (DEFAULT_RECONSTRUCTED_ROOT / decoded_filename_from_manifest(manifest_path))
-    decode_png_to_file(manifest_path, resolved_output)
-    print(f"decoded: {resolved_output}")
-    print(f"reconstructed_sha256: {sha256_file(resolved_output)}")
-    return resolved_output
+
+    temp_zip = (
+        DEFAULT_RECONSTRUCTED_ROOT /
+        decoded_filename_from_manifest(manifest_path)
+    )
+
+    decode_png_to_file(
+        manifest_path,
+        temp_zip
+    )
+
+    print(f"Decoded zip: {temp_zip}")
+
+
+    unzip_file(
+        temp_zip,
+         DEFAULT_RECONSTRUCTED_ROOT
+    )
+
+
+    temp_zip.unlink()
+
+    print(f"Restored: {DEFAULT_RECONSTRUCTED_ROOT}")
+
+    return  DEFAULT_RECONSTRUCTED_ROOT
 
 
 def batch_decode_encoded_png_sets() -> list[Path]:
     """Decode every manifest-backed PNG set under encoded_png."""
 
-    manifest_paths = sorted(DEFAULT_ENCODED_ROOT.glob("*_manifest.json"))
+    manifest_paths = sorted(DEFAULT_ENCODED_ROOT.glob("*_manifest.png"))
     decoded_paths: list[Path] = []
 
     if not manifest_paths:
-        print(f"No manifest JSON files found in {DEFAULT_ENCODED_ROOT}")
+        print(f"No manifest PNG files found in {DEFAULT_ENCODED_ROOT}")
         return decoded_paths
 
     total_sets = len(manifest_paths)

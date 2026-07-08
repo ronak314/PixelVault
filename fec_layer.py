@@ -7,6 +7,7 @@ encoder only writes/reads PNG payloads; it does not implement FEC.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -15,7 +16,7 @@ import zfec
 
 from chunk_reader import read_file_in_chunks
 
-DEFAULT_PARITY_CHUNKS = 20
+DEFAULT_PARITY_RATIO = 0.20
 PNG_KIND = Literal["data", "parity"]
 
 
@@ -35,6 +36,7 @@ class StoragePlan:
     """Encoding plan and payloads for the PNG storage layer."""
 
     original_filename: str
+    original_is_directory: bool
     original_size: int
     chunk_size: int
     data_chunks: int
@@ -73,17 +75,20 @@ def _pad_block(block: bytes, block_size: int) -> bytes:
 def build_storage_plan(
     input_path: str | Path,
     chunk_size: int,
-    parity_chunks: int = DEFAULT_PARITY_CHUNKS,
+    parity_chunks: int | None = None,
+    *,
+    original_filename: str | None = None,
+    original_is_directory: bool = False,
 ) -> StoragePlan:
     """Split a file into chunks, generate parity, and build a manifest."""
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
-    if parity_chunks <= 0:
+    if parity_chunks is not None and parity_chunks <= 0:
         raise ValueError("parity_chunks must be positive")
 
     input_file = Path(input_path)
-    original_name = input_file.name
+    original_name = original_filename or input_file.name
     original_hasher = hashlib.sha256()
 
     data_blocks: list[bytes] = []
@@ -104,6 +109,9 @@ def build_storage_plan(
     padded_blocks = [_pad_block(block, block_size) for block in data_blocks]
 
     data_chunk_count = len(data_blocks)
+    if parity_chunks is None:
+        parity_chunks = max(1, math.ceil(data_chunk_count * DEFAULT_PARITY_RATIO))
+
     total_chunks = data_chunk_count + parity_chunks
 
     encoder = zfec.Encoder(data_chunk_count, total_chunks)
@@ -137,12 +145,14 @@ def build_storage_plan(
             }
         )
 
-    manifest_filename = f"{original_name}_manifest.json"
+    manifest_filename = f"{original_name}_manifest.png"
     manifest = {
         "original_filename": original_name,
+        "original_is_directory": original_is_directory,
         "original_size": original_size,
         "chunk_size": chunk_size,
         "data_chunks": data_chunk_count,
+        "parity_ratio_target": DEFAULT_PARITY_RATIO,
         "parity_chunks": parity_chunks,
         "total_chunks": total_chunks,
         "original_sha256": original_hasher.hexdigest(),
@@ -153,6 +163,7 @@ def build_storage_plan(
 
     return StoragePlan(
         original_filename=original_name,
+        original_is_directory=original_is_directory,
         original_size=original_size,
         chunk_size=chunk_size,
         data_chunks=data_chunk_count,
