@@ -258,9 +258,16 @@ def resolve_manifest_png_path(input_path: str | Path) -> Path:
     input_file = Path(input_path)
 
     if input_file.is_dir():
-        manifest_candidates = sorted(input_file.glob("*_manifest.png"))
+        # Users may upload a parent folder that contains an encoded set nested
+        # inside (e.g. downloaded zip -> extracted folder -> PNGs).
+        # Search recursively for the manifest, then prefer the manifest whose
+        # directory contains the most chunk PNGs.
+        manifest_candidates = sorted(input_file.rglob("*_manifest.png"))
         if manifest_candidates:
-            return manifest_candidates[0]
+            return max(
+                manifest_candidates,
+                key=lambda p: len(list(p.parent.glob("*_chunk_*.png"))),
+            )
 
     if (
     input_file.is_file()
@@ -313,7 +320,7 @@ def _load_manifest(input_path: str | Path) -> tuple[Path, dict[str, object]]:
 
     encoded_dir = manifest_path.parent
 
-    for chunk_path in encoded_dir.glob("*_chunk_*.png"):
+    for chunk_path in encoded_dir.rglob("*_chunk_*.png"):
 
         recovered = extract_manifest_from_chunk(chunk_path)
 

@@ -1,355 +1,225 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pixel Hopper</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PNG Encoder / Decoder</title>
     <style>
-      :root {
-        color-scheme: dark;
-        --bg: #08111f;
-        --panel: rgba(12, 20, 36, 0.84);
-        --panel-strong: #0e1830;
-        --text: #edf2ff;
-        --muted: #9db0d0;
-        --accent: #72e6ff;
-        --accent-2: #9dffb3;
-        --danger: #ff8da1;
-        --border: rgba(154, 183, 255, 0.18);
-      }
-
-      * { box-sizing: border-box; }
-
       body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         margin: 0;
-        min-height: 100vh;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background:
-          radial-gradient(circle at top left, rgba(114, 230, 255, 0.16), transparent 28%),
-          radial-gradient(circle at bottom right, rgba(157, 255, 179, 0.14), transparent 24%),
-          linear-gradient(180deg, #09111f 0%, #050914 100%);
-        color: var(--text);
+        background: #0b1220;
+        color: #e5e7eb;
       }
-
       .shell {
-        max-width: 1100px;
+        max-width: 960px;
         margin: 0 auto;
-        padding: 40px 20px 56px;
+        padding: 32px 20px 40px;
       }
-
-      .hero {
-        display: grid;
-        gap: 18px;
-        grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
-        align-items: stretch;
-      }
-
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 24px;
-        backdrop-filter: blur(16px);
-        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
-      }
-
-      .intro {
-        padding: 34px;
-      }
-
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(114, 230, 255, 0.12);
-        color: var(--accent);
-        font-size: 12px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-
       h1 {
-        margin: 18px 0 10px;
-        font-size: clamp(2.2rem, 4vw, 4rem);
-        line-height: 0.95;
+        margin: 0 0 4px;
+        font-size: 1.9rem;
       }
-
-      .lede {
-        margin: 0;
-        max-width: 60ch;
-        color: var(--muted);
-        font-size: 1.05rem;
-        line-height: 1.6;
+      .subtitle {
+        margin: 0 0 24px;
+        font-size: 0.95rem;
+        color: #9ca3af;
       }
-
-      .upload-card {
-        padding: 28px;
-        display: flex;
-        flex-direction: column;
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
         gap: 16px;
       }
-
-      .upload-box {
-        border: 1.5px dashed rgba(114, 230, 255, 0.35);
-        border-radius: 20px;
-        padding: 22px;
-        background: rgba(7, 12, 22, 0.52);
+      .card {
+        background: rgba(15, 23, 42, 0.95);
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        padding: 18px 18px 16px;
       }
-
-      label {
-        display: block;
-        font-size: 14px;
-        color: var(--muted);
-        margin-bottom: 10px;
-      }
-
-      input[type="file"] {
-        width: 100%;
-        color: var(--muted);
-      }
-
-      .button-row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-
-      .button {
-        border: 0;
-        border-radius: 14px;
-        padding: 12px 18px;
-        font-weight: 700;
-        cursor: pointer;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .button.primary {
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        color: #04101a;
-      }
-
-      .button.secondary {
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text);
-        border: 1px solid var(--border);
-      }
-
-      .notice {
-        padding: 14px 16px;
-        border-radius: 14px;
-        border: 1px solid rgba(255, 141, 161, 0.25);
-        background: rgba(255, 141, 161, 0.08);
-        color: #ffd4dc;
-      }
-
-      .status-grid {
-        margin-top: 18px;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 18px;
-      }
-
-      .status-card {
-        padding: 22px;
-      }
-
-      .status-title {
+      .card h2 {
         margin: 0 0 8px;
-        font-size: 1.05rem;
+        font-size: 1.1rem;
       }
-
-      .meta {
-        color: var(--muted);
-        font-size: 14px;
-        margin: 0;
-        word-break: break-word;
+      .card p {
+        margin: 0 0 12px;
+        font-size: 0.9rem;
+        color: #9ca3af;
       }
-
-      .progress-wrap {
-        margin-top: 16px;
-        width: 100%;
-        height: 12px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.07);
-      }
-
-      .progress-bar {
-        height: 100%;
-        width: 0;
-        border-radius: inherit;
-        background: linear-gradient(90deg, var(--accent), var(--accent-2));
-        transition: width 180ms ease;
-      }
-
-      .status-pill {
-        display: inline-flex;
+      .row {
+        display: flex;
+        gap: 10px;
         align-items: center;
-        gap: 8px;
-        margin-top: 12px;
-        padding: 8px 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      input[type="file"] {
+        font-size: 0.9rem;
+        max-width: 100%;
+      }
+      #images {
+        margin-top: 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      img {
+        max-width: 520px;
+        width: 100%;
+        height: auto;
+        border: 1px solid rgba(148, 163, 184, 0.6);
+        border-radius: 10px;
+        background: #020617;
+      }
+      .muted {
+        color: #9ca3af;
+        font-size: 0.85rem;
+      }
+      button {
+        padding: 7px 12px;
+        cursor: pointer;
         border-radius: 999px;
-        font-size: 13px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid var(--border);
+        border: 0;
+        font-size: 0.9rem;
+        font-weight: 500;
       }
-
-      .status-pill[data-status="complete"] { color: var(--accent-2); }
-      .status-pill[data-status="failed"] { color: var(--danger); }
-
-      .jobs {
-        margin-top: 18px;
-        padding: 24px;
+      #encode {
+        background: linear-gradient(135deg, #22c55e, #4ade80);
+        color: #022c22;
       }
-
-      .jobs h2 {
-        margin: 0 0 14px;
-        font-size: 1.25rem;
+      #download {
+        background: rgba(15, 23, 42, 0.8);
+        color: #e5e7eb;
+        border: 1px solid rgba(148, 163, 184, 0.6);
       }
-
-      .job-list {
-        display: grid;
-        gap: 12px;
+      #download:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
-
-      .job-row {
-        padding: 14px 16px;
-        border-radius: 16px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
-        display: grid;
-        gap: 6px;
+      #status {
+        min-height: 1.3em;
       }
-
-      .job-row a {
-        color: var(--accent);
-        text-decoration: none;
-      }
-
       @media (max-width: 800px) {
-        .hero {
+        .grid {
           grid-template-columns: 1fr;
-        }
-
-        .intro, .upload-card, .status-card, .jobs {
-          padding: 22px;
         }
       }
     </style>
   </head>
   <body>
     <main class="shell">
-      <section class="hero">
-        <div class="card intro">
-          <span class="eyebrow">Pixel Hopper</span>
-          <h1>Upload a file, encode it as PNG, and watch the checksum-driven round trip.</h1>
-          <p class="lede">This local Flask interface accepts a binary file, runs it through the PNG encoder and decoder in the background, and exposes live processing status so you can verify the original and reconstructed SHA256 hashes match.</p>
-        </div>
+      <h1>PNG Encoder / Decoder</h1>
+      <p class="subtitle">Encode any file into PNG chunks, preview them, and decode from an encoded folder back to the original.</p>
 
-        <form class="card upload-card" action="/upload" method="post" enctype="multipart/form-data">
-          <div class="upload-box">
-            <label for="file">Choose a file to process</label>
-            <input id="file" name="file" type="file" required>
+      <section class="grid">
+        <article class="card">
+          <h2>Encode</h2>
+          <p>Select a single file, encode it to PNG chunks, and preview each image below.</p>
+          <div class="row">
+            <input id="file" type="file" />
+            <button id="encode">Encode</button>
+            <button id="download" disabled>Download all</button>
           </div>
-          <div class="button-row">
-            <button class="button primary" type="submit">Start processing</button>
-            <a class="button secondary" href="/">Refresh</a>
-          </div>
-          {% if error %}
-            <div class="notice">{{ error }}</div>
-          {% endif %}
-        </form>
-      </section>
-
-      {% if job %}
-      <section class="status-grid" id="job-status" data-job-id="{{ job.id }}">
-        <article class="card status-card">
-          <h2 class="status-title">Current job</h2>
-          <p class="meta"><strong>File:</strong> {{ job.filename }}</p>
-          <p class="meta"><strong>Message:</strong> <span id="message">{{ job.message }}</span></p>
-          <p class="meta"><strong>Original SHA256:</strong> <span id="original-sha">{{ job.original_sha256 or 'pending' }}</span></p>
-          <p class="meta"><strong>Reconstructed SHA256:</strong> <span id="reconstructed-sha">{{ job.reconstructed_sha256 or 'pending' }}</span></p>
-          <p class="meta"><strong>Chunks:</strong> <span id="chunk-count">{{ job.chunk_count or 'pending' }}</span></p>
-          <div class="progress-wrap" aria-label="processing progress">
-            <div class="progress-bar" id="progress-bar" style="width: {{ job.progress }}%;"></div>
-          </div>
-          <div class="status-pill" id="status-pill" data-status="{{ job.status }}">{{ job.status|upper }}</div>
-          <p class="meta" id="error-text" style="margin-top:12px; color: var(--danger);">{{ job.error or '' }}</p>
+          <p class="muted" id="status"></p>
         </article>
 
-        <article class="card status-card">
-          <h2 class="status-title">Artifacts</h2>
-          <p class="meta"><strong>Encoded dir:</strong> <span id="encoded-dir">{{ job.encoded_dir or 'pending' }}</span></p>
-          <p class="meta"><strong>Manifest:</strong> <span id="manifest-path">{{ job.manifest_path or 'pending' }}</span></p>
-          <p class="meta"><strong>Reconstructed file:</strong> <span id="reconstructed-path">{{ job.reconstructed_path or 'pending' }}</span></p>
-          <p class="meta">The page polls the local API every second until the job completes or fails.</p>
+        <article class="card">
+          <h2>Decode</h2>
+          <p>Upload an encoded PNG folder or collection of PNGs and reconstruct the original file.</p>
+          <form id="decode-form" action="/decode" method="post" enctype="multipart/form-data">
+            <div class="row">
+              <input
+                id="decode-files"
+                type="file"
+                name="files"
+                multiple
+                webkitdirectory
+              />
+              <button type="submit">Decode &amp; download</button>
+            </div>
+            <p class="muted">Your browser will download the reconstructed file when decoding finishes.</p>
+          </form>
         </article>
       </section>
-      {% endif %}
 
-      <section class="card jobs">
-        <h2>Recent jobs</h2>
-        {% if jobs %}
-          <div class="job-list">
-            {% for item in jobs %}
-              <div class="job-row">
-                <strong><a href="/jobs/{{ item.id }}">{{ item.filename }}</a></strong>
-                <span class="meta">{{ item.status }} · {{ item.progress }}% · {{ item.message }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="meta">No jobs yet. Upload a file to begin.</p>
-        {% endif %}
-      </section>
+      <div id="images"></div>
     </main>
 
     <script>
-      const statusRoot = document.getElementById('job-status');
-      if (statusRoot) {
-        const jobId = statusRoot.dataset.jobId;
-        const progressBar = document.getElementById('progress-bar');
-        const statusPill = document.getElementById('status-pill');
-        const messageNode = document.getElementById('message');
-        const originalSha = document.getElementById('original-sha');
-        const reconstructedSha = document.getElementById('reconstructed-sha');
-        const chunkCount = document.getElementById('chunk-count');
-        const errorText = document.getElementById('error-text');
-        const encodedDir = document.getElementById('encoded-dir');
-        const manifestPath = document.getElementById('manifest-path');
-        const reconstructedPath = document.getElementById('reconstructed-path');
+      const fileInput = document.getElementById("file");
+      const encodeBtn = document.getElementById("encode");
+      const downloadBtn = document.getElementById("download");
+      const statusEl = document.getElementById("status");
+      const imagesEl = document.getElementById("images");
 
-        const render = (job) => {
-          progressBar.style.width = `${job.progress}%`;
-          statusPill.textContent = job.status.toUpperCase();
-          statusPill.dataset.status = job.status;
-          messageNode.textContent = job.message;
-          originalSha.textContent = job.original_sha256 || 'pending';
-          reconstructedSha.textContent = job.reconstructed_sha256 || 'pending';
-          chunkCount.textContent = job.chunk_count || 'pending';
-          encodedDir.textContent = job.encoded_dir || 'pending';
-          manifestPath.textContent = job.manifest_path || 'pending';
-          reconstructedPath.textContent = job.reconstructed_path || 'pending';
-          errorText.textContent = job.error || '';
-        };
+      let currentJobId = null;
+      let pollTimer = null;
 
-        const poll = async () => {
-          const response = await fetch(`/api/jobs/${jobId}`);
-          if (!response.ok) return;
-          const job = await response.json();
-          render(job);
-          if (job.status === 'complete' || job.status === 'failed') {
-            clearInterval(timer);
-          }
-        };
+      const setStatus = (text) => { statusEl.textContent = text || ""; };
 
-        const timer = setInterval(poll, 1000);
-        poll();
-      }
+      const renderImages = (chunks) => {
+        imagesEl.innerHTML = "";
+        for (const chunk of chunks) {
+          const img = document.createElement("img");
+          img.loading = "lazy";
+          img.alt = chunk.name;
+          img.src = chunk.url;
+          imagesEl.appendChild(img);
+        }
+      };
+
+      const pollJob = async (jobId) => {
+        const r = await fetch(`/api/jobs/${jobId}`);
+        if (!r.ok) return;
+        const job = await r.json();
+        setStatus(`${job.status}: ${job.message}`);
+
+        if (job.status === "complete") {
+          downloadBtn.disabled = false;
+          renderImages(job.chunks || []);
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+
+        if (job.status === "failed") {
+          downloadBtn.disabled = true;
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      };
+
+      encodeBtn.addEventListener("click", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          setStatus("Pick a file first.");
+          return;
+        }
+
+        imagesEl.innerHTML = "";
+        downloadBtn.disabled = true;
+        setStatus("Uploading...");
+
+        const fd = new FormData();
+        fd.append("file", file);
+
+        const r = await fetch("/api/encode", { method: "POST", body: fd });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setStatus(data.error || "Upload failed.");
+          return;
+        }
+
+        currentJobId = data.job_id;
+        setStatus("Queued...");
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => pollJob(currentJobId), 800);
+        pollJob(currentJobId);
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        if (!currentJobId) return;
+        window.location.href = `/api/jobs/${currentJobId}/download_all`;
+      });
     </script>
   </body>
 </html>
