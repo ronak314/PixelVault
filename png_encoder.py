@@ -57,6 +57,55 @@ def sha256_bytes(data: bytes) -> str:
 
     return hashlib.sha256(data).hexdigest()
 
+def add_manifest_header(manifest: dict, payload: bytes) -> bytes:
+    """
+    Prefix chunk data with a copy of the manifest.
+    Format:
+    [4 bytes manifest length][manifest json][chunk bytes]
+    """
+
+    manifest_bytes = json.dumps(manifest).encode("utf-8")
+    manifest_length = len(manifest_bytes).to_bytes(4, "big")
+
+    return manifest_length + manifest_bytes + payload
+
+def remove_manifest_header(data: bytes) -> tuple[dict, bytes]:
+    """
+    Extract manifest and chunk data from a chunk payload.
+    """
+
+    manifest_length = int.from_bytes(data[:4], "big")
+
+    manifest_start = 4
+    manifest_end = 4 + manifest_length
+
+    manifest = json.loads(
+        data[manifest_start:manifest_end].decode("utf-8")
+    )
+
+    payload = data[manifest_end:]
+
+    return manifest, payload
+
+def extract_manifest_from_chunk(path: Path) -> tuple[dict, bytes] | None:
+    """
+    Recover manifest and payload from a chunk PNG.
+    Returns None if the chunk is corrupted.
+    """
+
+    try:
+        data = _read_png_payload(path)
+
+        manifest, payload = remove_manifest_header(data)
+
+        # sanity check
+        if "chunk_hashes" not in manifest:
+            return None
+
+        return manifest, payload
+
+    except Exception:
+        return None
 
 def sha256_file(path: str | Path) -> str:
     """Return the SHA256 hex digest for a file without loading it all at once."""
@@ -89,19 +138,17 @@ def bytes_to_rgb_array(data: bytes, width: int | None = None) -> np.ndarray:
 
 
 def _write_payload_png(payload: bytes, output_path: Path, kind: str) -> ChunkRecord:
-    """Write arbitrary payload bytes to a square PNG and return its metadata."""
 
     image_array = bytes_to_rgb_array(payload)
+
     image_side = int(image_array.shape[0])
     padding_bytes = image_side * image_side * 3 - len(payload)
 
     image = Image.fromarray(image_array, mode="RGB")
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata = PngImagePlugin.PngInfo()
-    metadata.add_text("payload_length", str(len(payload)))
-    metadata.add_text("payload_sha256", sha256_bytes(payload))
-    metadata.add_text("payload_kind", kind)
-    image.save(output_path, format="PNG", pnginfo=metadata)
+
+    image.save(output_path, format="PNG")
 
     return ChunkRecord(
         index=0,
@@ -112,7 +159,6 @@ def _write_payload_png(payload: bytes, output_path: Path, kind: str) -> ChunkRec
         padding_bytes=padding_bytes,
         sha256=sha256_bytes(payload),
     )
-
 
 def _chunk_name(original_name: str, index: int, *, kind: str | None = None, manifest: bool = False) -> str:
     """Build a flat, descriptive filename for a PNG output."""
@@ -166,9 +212,24 @@ def encode_file_to_png(
     _write_payload_png(json.dumps(storage_plan.manifest, indent=2).encode("utf-8"), manifest_path, kind="manifest")
     chunk_paths.append(manifest_path)
 
-    for share_record, share_payload in zip(storage_plan.share_records, storage_plan.share_payloads):
+    for share_record, share_payload in zip(
+    storage_plan.share_records,
+    storage_plan.share_payloads
+):
+
         chunk_path = output_root / share_record.filename
-        _write_payload_png(share_payload, chunk_path, kind=share_record.kind)
+
+        protected_payload = add_manifest_header(
+            storage_plan.manifest,
+            share_payload
+        )
+
+        _write_payload_png(
+            protected_payload,
+            chunk_path,
+            kind=share_record.kind
+        )
+
         chunk_paths.append(chunk_path)
 
     return EncodingResult(
@@ -176,7 +237,14 @@ def encode_file_to_png(
         output_dir=output_root,
         manifest_path=manifest_path,
         chunk_paths=chunk_paths,
-        chunks=[_chunk_record_from_payload(payload, record.filename, record.index) for record, payload in zip(storage_plan.share_records, storage_plan.share_payloads)],
+        chunks=[
+            _chunk_record_from_payload(
+                add_manifest_header(storage_plan.manifest, payload),
+                record.filename,
+                record.index
+            )
+            for record, payload in zip(storage_plan.share_records, storage_plan.share_payloads)
+]
     )
 
 
@@ -194,7 +262,13 @@ def resolve_manifest_png_path(input_path: str | Path) -> Path:
         if manifest_candidates:
             return manifest_candidates[0]
 
-    if input_file.is_file() and input_file.name.endswith("_manifest.png"):
+    if (
+    input_file.is_file()
+    and (
+        input_file.name.endswith("_manifest.png")
+        or "_chunk_" in input_file.name
+        )   
+    ):
         return input_file
 
     candidate = DEFAULT_ENCODED_ROOT / f"{input_file.name}_manifest.png"
@@ -211,19 +285,44 @@ def resolve_manifest_json_path(input_path: str | Path) -> Path:
 
 
 def _read_png_payload(path: Path) -> bytes:
-    """Read the raw payload bytes stored in a PNG image."""
 
     with Image.open(path) as image:
-        rgb_bytes = np.asarray(image.convert("RGB"), dtype=np.uint8).reshape(-1).tobytes()
-        payload_length = int(image.info.get("payload_length", len(rgb_bytes)))
-    return rgb_bytes[:payload_length]
+        rgb_bytes = (
+            np.asarray(image.convert("RGB"), dtype=np.uint8)
+            .reshape(-1)
+            .tobytes()
+        )
 
-
+    return rgb_bytes
 def _load_manifest(input_path: str | Path) -> tuple[Path, dict[str, object]]:
+
     manifest_path = resolve_manifest_png_path(input_path)
-    manifest_payload = _read_png_payload(manifest_path)
-    manifest = json.loads(manifest_payload.decode("utf-8"))
-    return manifest_path.parent, manifest
+
+    try:
+        manifest_payload = _read_png_payload(manifest_path)
+        manifest = json.loads(manifest_payload.decode("utf-8"))
+            
+        if "chunk_hashes" in manifest:
+            return manifest_path.parent, manifest
+
+    except Exception:
+        pass
+
+
+    # fallback: recover manifest from any chunk
+
+    encoded_dir = manifest_path.parent
+
+    for chunk_path in encoded_dir.glob("*_chunk_*.png"):
+
+        recovered = extract_manifest_from_chunk(chunk_path)
+
+        if recovered is not None:
+            manifest, _ = recovered
+            return encoded_dir, manifest
+
+
+    raise RuntimeError("No valid manifest found")
 
 
 def decode_png_to_bytes(input_path: str | Path) -> bytes:
@@ -243,15 +342,55 @@ def decode_png_to_bytes(input_path: str | Path) -> bytes:
             continue
 
         chunk_bytes = pixel_data.tobytes()
-        expected_length = int(entry["byte_length"])
+        expected_length = int(entry["byte_length"]) + len(
+            json.dumps(manifest).encode("utf-8")
+        ) + 4
         if len(chunk_bytes) < expected_length:
             continue
 
-        chunk_payload = chunk_bytes[:expected_length]
-        if sha256_bytes(chunk_payload) != entry["sha256"]:
+        chunk_payload_with_manifest = chunk_bytes[:expected_length]
+
+        try:
+            print(
+                "DEBUG",
+                entry["filename"],
+                "stored bytes:",
+                len(chunk_bytes),
+                "expected:",
+                expected_length
+            )
+            
+            chunk_manifest, chunk_payload = remove_manifest_header(
+                chunk_payload_with_manifest
+            )
+
+        except Exception:
             continue
 
-        available_shares.append((int(entry["index"]) - 1, chunk_payload))
+        if chunk_manifest["original_filename"] != manifest.get("original_filename"):
+            continue
+           
+        actual_hash = sha256_bytes(chunk_payload)
+
+        if actual_hash != entry["sha256"]:
+            print(
+                f"BAD HASH {entry['filename']}\n"
+                f"expected: {entry['sha256']}\n"
+               f"actual:   {actual_hash}\n"
+            )
+            continue
+        
+
+        available_shares.append(
+            (
+                int(entry["index"]) - 1,
+                chunk_payload
+            )
+        )
+
+    print(
+    f"Valid shares: {len(available_shares)} / {len(chunk_entries)}"
+    )
 
     return recover_original_bytes(manifest, available_shares)
 
@@ -447,7 +586,7 @@ def batch_encode_uploads(chunk_size_mb: int | None = None) -> list[EncodingResul
 
 def _decode_with_checksums(input_path: Path, output_path: Path | None) -> Path:
 
-    manifest_path = resolve_manifest_json_path(input_path)
+    manifest_path = input_path
 
     temp_zip = (
         DEFAULT_RECONSTRUCTED_ROOT /
@@ -479,6 +618,31 @@ def batch_decode_encoded_png_sets() -> list[Path]:
     """Decode every manifest-backed PNG set under encoded_png."""
 
     manifest_paths = sorted(DEFAULT_ENCODED_ROOT.glob("*_manifest.png"))
+
+    if not manifest_paths:
+        print("No manifest PNGs found. Searching chunks for recoverable archives...")
+
+    chunk_files = sorted(DEFAULT_ENCODED_ROOT.glob("*_chunk_*.png"))
+
+    recovered_names = set()
+
+    for chunk in chunk_files:
+        recovered = extract_manifest_from_chunk(chunk)
+
+        if recovered is not None:
+            manifest, _ = recovered
+            recovered_names.add(manifest["original_filename"])
+
+    if recovered_names:
+        print(f"Recovered archives: {recovered_names}")
+
+        manifest_paths = []
+        for chunk in chunk_files:
+            recovered = extract_manifest_from_chunk(chunk)
+            if recovered:
+                manifest_paths.append(chunk)
+                break
+
     decoded_paths: list[Path] = []
 
     if not manifest_paths:
@@ -563,3 +727,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
