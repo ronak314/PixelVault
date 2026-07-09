@@ -188,6 +188,27 @@
         min-height: 1.5em;
       }
 
+      .upload-progress {
+        width: 100%;
+        height: 8px;
+        margin-top: 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        display: none;
+      }
+
+      .upload-progress.active {
+        display: block;
+      }
+
+      .upload-progress-bar {
+        width: 0%;
+        height: 100%;
+        background: var(--accent-blue);
+        transition: width 0.15s ease;
+      }
+
       .success-marker {
         color: #34d399;
         font-weight: 500;
@@ -257,6 +278,15 @@
         background: #020617;
       }
 
+      .app-version {
+        position: fixed;
+        right: 16px;
+        bottom: 12px;
+        color: rgba(243, 244, 246, 0.45);
+        font-size: 0.75rem;
+        pointer-events: none;
+      }
+
       @media (max-width: 900px) {
         body { flex-direction: column; }
         aside { width: 100%; padding: 20px; border-right: none; border-bottom: 1px solid var(--border-color); }
@@ -294,12 +324,16 @@
               <div class="upload-zone" onclick="document.getElementById('media-file').click()">
                 <span style="font-size: 1.5rem;">📸</span>
                 <span class="upload-zone-label">Select Photos or Videos</span>
-                <input id="media-file" type="file" accept="image/*,video/*" onchange="updateZoneText(this)" />
+                <input id="media-file" type="file" multiple accept="image/*,video/*" onchange="updateZoneText(this)" />
               </div>
             </div>
             <div>
               <div class="row">
                 <button id="media-upload-btn" class="btn-blue">Push to Hopper</button>
+                <button id="media-cancel-btn" class="btn-secondary" disabled>Cancel</button>
+              </div>
+              <div id="media-progress" class="upload-progress" aria-hidden="true">
+                <div id="media-progress-bar" class="upload-progress-bar"></div>
               </div>
               <p class="status-text" id="media-status"></p>
             </div>
@@ -356,6 +390,7 @@
 
       <div id="images"></div>
     </main>
+    <div class="app-version">v{{ app_version }}</div>
 
     <script>
       // --- Navigation Switches ---
@@ -415,31 +450,147 @@
       // --- Pipeline Path 1: Direct Media ---
       const mediaInput = document.getElementById("media-file");
       const mediaUploadBtn = document.getElementById("media-upload-btn");
+      const mediaCancelBtn = document.getElementById("media-cancel-btn");
+      const mediaProgress = document.getElementById("media-progress");
+      const mediaProgressBar = document.getElementById("media-progress-bar");
       const mediaStatus = document.getElementById("media-status");
+      let mediaUploadRequest = null;
+
+      const setMediaUploadProgress = (percent) => {
+        mediaProgress.classList.add("active");
+        mediaProgress.setAttribute("aria-hidden", "false");
+        mediaProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      };
+
+      const resetMediaUploadControls = () => {
+        mediaUploadRequest = null;
+        mediaUploadBtn.disabled = false;
+        mediaCancelBtn.disabled = true;
+      };
+
+      const formatTimeRemaining = (seconds) => {
+        if (!Number.isFinite(seconds) || seconds < 0) return "estimating";
+        if (seconds < 1) return "under 1s";
+
+        const roundedSeconds = Math.ceil(seconds);
+        const minutes = Math.floor(roundedSeconds / 60);
+        const remainingSeconds = roundedSeconds % 60;
+
+        if (minutes === 0) return `${remainingSeconds}s`;
+        if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return `${hours}h ${remainingMinutes}m`;
+      };
+
+      const countUploadedFiles = (files, uploadedBytes) => {
+        let completedFiles = 0;
+        let cumulativeBytes = 0;
+
+        for (const file of files) {
+          cumulativeBytes += file.size;
+          if (uploadedBytes >= cumulativeBytes) {
+            completedFiles += 1;
+          } else {
+            break;
+          }
+        }
+
+        return completedFiles;
+      };
+
+      const uploadMediaFiles = (formData, onProgress) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        mediaUploadRequest = xhr;
+
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            onProgress({
+              loaded: event.loaded,
+              total: event.total,
+              percent: Math.round((event.loaded / event.total) * 100),
+            });
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          let data = {};
+          try {
+            data = JSON.parse(xhr.responseText || "{}");
+          } catch (error) {
+            data = {};
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(data.error || "Upload failed."));
+          }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Upload failed.")));
+        xhr.addEventListener("abort", () => reject(new DOMException("Upload cancelled.", "AbortError")));
+        xhr.open("POST", "/api/media");
+        xhr.send(formData);
+      });
 
       mediaUploadBtn.addEventListener("click", async () => {
-        const file = mediaInput.files && mediaInput.files[0];
-        if (!file) {
-          mediaStatus.textContent = "Select an image or video asset first.";
+        const files = mediaInput.files ? Array.from(mediaInput.files) : [];
+        if (files.length === 0) {
+          mediaStatus.textContent = "Select one or more image or video assets first.";
           return;
         }
 
         document.getElementById("images").innerHTML = "";
-        mediaStatus.textContent = "Streaming directly to laundering automation backend...";
+        mediaStatus.textContent = `Streaming ${files.length} item(s) directly to laundering automation backend...`;
+        mediaUploadBtn.disabled = true;
+        mediaCancelBtn.disabled = false;
+        setMediaUploadProgress(0);
 
         const fd = new FormData();
-        fd.append("file", file);
+        files.forEach((file) => fd.append("files", file));
+        const uploadStartedAt = performance.now();
+        const totalFileBytes = files.reduce((total, file) => total + file.size, 0);
 
-        const r = await fetch("/api/encode", { method: "POST", body: fd });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          mediaStatus.textContent = data.error || "Upload failed.";
-          return;
+        try {
+          const data = await uploadMediaFiles(fd, ({ loaded, total, percent }) => {
+            setMediaUploadProgress(percent);
+
+            const elapsedSeconds = Math.max((performance.now() - uploadStartedAt) / 1000, 0.1);
+            const uploadRate = loaded / elapsedSeconds;
+            const remainingSeconds = uploadRate > 0 ? (total - loaded) / uploadRate : Number.NaN;
+            const estimatedFileBytesUploaded = total > 0
+              ? Math.min(totalFileBytes, Math.floor((loaded / total) * totalFileBytes))
+              : 0;
+            const completedFiles = countUploadedFiles(files, estimatedFileBytesUploaded);
+            const remainingFiles = Math.max(0, files.length - completedFiles);
+
+            mediaStatus.textContent = `Uploading ${remainingFiles} item(s) remaining: ${percent}% | ETA ${formatTimeRemaining(remainingSeconds)}`;
+          });
+
+          resetMediaUploadControls();
+          setMediaUploadProgress(100);
+          mediaStatus.textContent = "Upload complete. Starting laundering pipeline...";
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(() => pollJob(data.job_id, mediaStatus, null, false), 1000);
+          pollJob(data.job_id, mediaStatus, null, false);
+        } catch (error) {
+          resetMediaUploadControls();
+          if (error.name === "AbortError") {
+            mediaStatus.textContent = "Upload cancelled.";
+            mediaProgress.classList.remove("active");
+            mediaProgress.setAttribute("aria-hidden", "true");
+            mediaProgressBar.style.width = "0%";
+            return;
+          }
+          mediaStatus.textContent = error.message || "Upload failed.";
         }
+      });
 
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(() => pollJob(data.job_id, mediaStatus, null, false), 1000);
-        pollJob(data.job_id, mediaStatus, null, false);
+      mediaCancelBtn.addEventListener("click", () => {
+        if (mediaUploadRequest) {
+          mediaUploadRequest.abort();
+        }
       });
 
       // --- Pipeline Path 2: Standard Data Encoder ---

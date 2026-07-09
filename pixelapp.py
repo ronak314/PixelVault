@@ -36,6 +36,8 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 PNG_DIR = BASE_DIR / "encoded_png"
 RECONSTRUCTED_DIR = BASE_DIR / "reconstructed"
 DECODE_UPLOAD_DIR = BASE_DIR / "decode_uploads"
+VERSION_FILE = BASE_DIR / ".app_version"
+APP_VERSION = "0"
 
 Status = Literal["queued", "processing", "pushing_to_pixel", "complete", "failed"]
 
@@ -94,6 +96,16 @@ def _ensure_directories() -> None:
     for directory in (UPLOAD_DIR, PNG_DIR, RECONSTRUCTED_DIR, DECODE_UPLOAD_DIR, LAUNDERING_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
+def _increment_app_version() -> str:
+    try:
+        current_version = int(VERSION_FILE.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        current_version = 0
+
+    next_version = current_version + 1
+    VERSION_FILE.write_text(f"{next_version}\n", encoding="utf-8")
+    return str(next_version)
+
 def _create_job(filename: str) -> Job:
     job = Job(id=uuid.uuid4().hex, filename=filename)
     with JOBS_LOCK:
@@ -121,9 +133,12 @@ def _process_job(job: Job) -> None:
         # 2. Relocate to PixelHopping/laundering directory
         job.update(status="pushing_to_pixel", progress=60, message="Moving chunks to laundering pipeline...")
         for chunk in job.encoded_dir.glob("*.png"):
-            shutil.copy(chunk, LAUNDERING_DIR / chunk.name)
-        if job.manifest_path and job.manifest_path.exists():
-            shutil.copy(job.manifest_path, LAUNDERING_DIR / job.manifest_path.name)
+            destination = LAUNDERING_DIR / chunk.name
+            destination.unlink(missing_ok=True)
+            shutil.move(str(chunk), destination)
+            if job.manifest_path == chunk:
+                job.manifest_path = destination
+        job.encoded_dir.rmdir()
 
         # 3. Fire-off the ADB Automation Script
         job.update(status="pushing_to_pixel", progress=80, message="Executing mobile transfer script...")
@@ -141,9 +156,40 @@ def _process_job(job: Job) -> None:
     except Exception as exc:
         job.update(status="failed", message="Processing broke down", error=str(exc))
 
+def _process_media_job(job: Job, media_paths: list[Path]) -> None:
+    try:
+        job.update(status="processing", progress=20, message="Saving media files...")
+        if not media_paths:
+            raise FileNotFoundError("No media files were uploaded.")
+
+        job.chunk_count = len(media_paths)
+
+        job.update(status="pushing_to_pixel", progress=60, message="Moving media to laundering pipeline...")
+        for media_path in media_paths:
+            if not media_path.exists():
+                raise FileNotFoundError(f"Uploaded media missing: {media_path.name}")
+
+            destination = LAUNDERING_DIR / media_path.name
+            destination.unlink(missing_ok=True)
+            shutil.move(str(media_path), destination)
+
+        job.update(status="pushing_to_pixel", progress=80, message="Executing mobile transfer script...")
+        if SCRIPT_PATH.exists():
+            result = subprocess.run([sys.executable, str(SCRIPT_PATH)], capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                print(f"Script Error: {result.stderr}")
+                raise RuntimeError(f"ADB Automation script failed: {result.stderr}")
+        else:
+            raise FileNotFoundError(f"Automation target script not found at expected location: {SCRIPT_PATH}")
+
+        job.update(status="complete", progress=100, message="Uploaded to pixel")
+
+    except Exception as exc:
+        job.update(status="failed", message="Processing broke down", error=str(exc))
+
 @app.get("/")
 def index() -> str:
-    return render_template("index.html")
+    return render_template("index.html", app_version=APP_VERSION)
 
 @app.post("/api/encode")
 def api_encode() -> object:
@@ -160,6 +206,33 @@ def api_encode() -> object:
     job.original_path = original_path
 
     worker = threading.Thread(target=_process_job, args=(job,), daemon=True)
+    worker.start()
+
+    return jsonify({"job_id": job.id})
+
+@app.post("/api/media")
+def api_media() -> object:
+    uploaded_files = request.files.getlist("files")
+    uploaded_files = [file for file in uploaded_files if file and file.filename]
+    if not uploaded_files:
+        return jsonify({"error": "Choose at least one image or video to process."}), 400
+
+    _ensure_directories()
+
+    job = _create_job(
+        uploaded_files[0].filename if len(uploaded_files) == 1 else f"{len(uploaded_files)} media files"
+    )
+
+    media_paths: list[Path] = []
+    for index, uploaded_file in enumerate(uploaded_files, start=1):
+        safe_name = secure_filename(Path(uploaded_file.filename).name) or f"media_{index}"
+        original_path = UPLOAD_DIR / f"{job.id}_{index}_{safe_name}"
+        uploaded_file.save(original_path)
+        media_paths.append(original_path)
+
+    job.original_path = media_paths[0]
+
+    worker = threading.Thread(target=_process_media_job, args=(job, media_paths), daemon=True)
     worker.start()
 
     return jsonify({"job_id": job.id})
@@ -271,4 +344,6 @@ def decode() -> object:
 
 if __name__ == "__main__":
     _ensure_directories()
+    APP_VERSION = _increment_app_version()
+    print(f"PixelVault app version: {APP_VERSION}")
     app.run(host="0.0.0.0", port=6767)
