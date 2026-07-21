@@ -85,7 +85,7 @@ via `add_manifest_header()` / `remove_manifest_header()`. If the dedicated manif
 ## Installation
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ronak314/PixelVault
 cd pixel-hopper
 pip install numpy pillow
 ```
